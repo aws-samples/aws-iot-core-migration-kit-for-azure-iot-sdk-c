@@ -24,6 +24,8 @@ This document will start from very beginning to help you understand every detail
     *   [Verify direct method on AWS IoT Core](#Verify-direct-method-on-AWS-IoT-Core)
     *   [Verify direct method over http call](#Verify-direct-method-over-http-call)
     *   [Go back to Azure IoT for debugging](#Go-back-to-Azure-IoT-for-debugging)
+*   [FAQ](#FAQ)
+    *   [MQTT payload size limitation caused by MBEDTLS_SSL_MAX_FRAGMENT_LENGTH](#MQTT-payload-size-limitation-caused-by-MBEDTLS_SSL_MAX_FRAGMENT_LENGTH)
 
 Azure IoT devicde SDK support Linux, Mac OS, and Visual Studio. We use Ubuntu 18.04 on WSL in this document.
 
