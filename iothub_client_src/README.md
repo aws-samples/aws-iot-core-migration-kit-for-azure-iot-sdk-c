@@ -154,7 +154,7 @@ To prove of possession, select your certificate. It’ll pop-up a menu at right 
 A verification code is generated. Then you need to sign this string as below:
 
 ```
-./certGen.sh create_verification_certificate ED88B3723D5E8D4B8613D3D91049E2B00387855E671CBDA8
+./certGen.sh create_verification_certificate <Your Verification Code>
 ```
 
 The pem file of signed string is in here `certs/verification-code.cert.pem`. You need to upload this file into the field of “Verification Certificate .pem or .cer file.” Then select “Verify“.
@@ -265,7 +265,7 @@ Copy the string in Step 3 section. This string also needs signed by root CA.
 Go to your certificate folder. Input this command to sign this string:
 
 ```
-./certGen.sh create_verification_certificate 3e2ba120bba3318850925f3537f1f17668fbcdf08225ab3b7a641d6fd4007bce
+./certGen.sh create_verification_certificate <Your Verification Code>
 ```
 Now we select “Select verification certificate” in Step 6. Upload the verification result `certs/verification-code.cert.pem` in your certification folder.
 
@@ -367,7 +367,7 @@ SSL-Session:
     Cipher    : ECDHE-RSA-AES128-GCM-SHA256
     Session-ID: CDBC943523BC1AADCBC51A778D29384C37B896CD09C9413178330224B7E79506
     Session-ID-ctx:
-    Master-Key: 2667869058B1056B74D7A3EA4CAACD4D8244BCCE3E92B6F20E8D7584C81BEB4858DF07034A79ADA8CA5F6889A3551992
+    Master-Key: <key value>
     PSK identity: None
     PSK identity hint: None
     SRP username: None
@@ -613,3 +613,103 @@ If you want to use Azure IoT device SDK with patch to connect to Azure IoT Hub, 
 ```
 
 You also need to change the connection string in your sample code, then rebuild.
+
+----------------------------------------------------------------
+
+# FAQ
+
+## MQTT payload size limitation caused by MBEDTLS_SSL_MAX_FRAGMENT_LENGTH
+
+mbedTLS supports [RFC 6066](https://tools.ietf.org/html/rfc6066#section-4), Maximum Fragment Size Negotiation. When you set mbedTLS’ MBEDTLS_SSL_MAX_FRAGMENT_LENGTH to a value smaller than 16384 on the device, the upstream fragments’ sizes will not exceed it.  However, AWS IoT core does not support RFC 6066 when this FAQ is published. It sets its maximum fragment size to 16384 and has no guarantees for any size below that.  Therefore, the size of the downstream fragments is not guaranteed to be what you intend to negotiate. 
+
+To make it worse, when the application publishes a document to the device shadow’s “update” topic, IoT Core will publish to the “update/accepted” and “update/documents” topics with documents of bigger sizes, which include meta data. Here is an example.
+
+When the application sends this payload to the “update” topic:
+
+```json
+{
+    "state": {
+        "reported": {
+            "color": "red",
+            "power": false
+        }
+    }
+}
+```
+
+IoT Core publishes to the “update/accepted” topic with a document that can be 2x more bigger than the original.
+
+```json
+{
+    "state": {
+        "reported": {
+            "color": "red",
+            "power": false
+        }
+    },
+    "metadata": {
+        "reported": {
+            "color": {
+                "timestamp": 1594963236
+            },
+            "power": {
+                "timestamp": 1594963236
+            }
+        }
+    },
+    "version": 7,
+    "timestamp": 1594963236
+}
+```
+
+It also publishes to the “update/documents” topic with a document that can be 4x more bigger than the original.
+
+```json
+{
+    "previous": {
+        "state": {
+            "reported": {
+                "color": "red",
+                "power": true
+            }
+        },
+        "metadata": {
+            "reported": {
+                "color": {
+                    "timestamp": 1594963176
+                },
+                "power": {
+                    "timestamp": 1594963176
+                }
+            }
+        },
+        "version": 6
+    },
+    "current": {
+        "state": {
+            "reported": {
+                "color": "red",
+                "power": false
+            }
+        },
+        "metadata": {
+            "reported": {
+                "color": {
+                    "timestamp": 1594963236
+                },
+                "power": {
+                    "timestamp": 1594963236
+                }
+            }
+        },
+        "version": 7
+    },
+    "timestamp": 1594963236
+}
+```
+
+Below are some workarounds to this issue:
+1.  Use a fragment size of 16384 if the device memory can accommodate.  This is the safest approach.
+2.  Consider using asymmetric Tx/Rx buffer sizes.  See [Allow asymmetric in/out buffer lengths to conserve RAM](https://github.com/ARMmbed/mbedtls/pull/536). It allows  setting separate MBEDTLS_SSL_IN_CONTENT_LEN and MBEDTLS_SSL_OUT_CONTENT_LEN.
+3.  Use ECDSA cert chains. ECDSA based cipher suites are much smaller and the overall cert chain is smaller. 
+4.  Keep application payload sizes small. The patch to Azure SDK included in this project does not subscribe to the update/documents topic of the AWS IoT Core device shadows; it subscribes to the update/accepted topic. Experiments showed that if the application’s shadow payload sizes were kept below 1/3 of MBEDTLS_SSL_MAX_FRAGMENT_LENGTH, the downstream fragment would not exceed MBEDTLS_SSL_MAX_FRAGMENT_LENGTH.  The exact factor depend on the specific application’s payload though, therefore you should determine the proper factor by sufficient testing.
