@@ -116,7 +116,11 @@ static const char* DIAGNOSTIC_CONTEXT_CREATION_TIME_UTC_PROPERTY = "creationtime
 #define SUBSCRIBE_TELEMETRY_TOPIC               0x0004
 #define SUBSCRIBE_DEVICE_METHOD_TOPIC           0x0008
 #define SUBSCRIBE_INPUT_QUEUE_TOPIC             0x0010
+#ifdef IOT_CORE_PATCH
+#define SUBSCRIBE_TOPIC_COUNT                   6
+#else
 #define SUBSCRIBE_TOPIC_COUNT                   5
+#endif
 
 MU_DEFINE_ENUM_STRINGS_WITHOUT_INVALID(MQTT_CLIENT_EVENT_ERROR, MQTT_CLIENT_EVENT_ERROR_VALUES)
 
@@ -174,6 +178,9 @@ typedef struct MQTTTRANSPORT_HANDLE_DATA_TAG
     STRING_HANDLE topic_MqttMessage;
     STRING_HANDLE topic_GetState;
     STRING_HANDLE topic_NotifyState;
+#ifdef IOT_CORE_PATCH
+    STRING_HANDLE topic_NotifyState_rejected;
+#endif
     STRING_HANDLE topic_InputQueue;
 
     STRING_HANDLE topic_DeviceMethods;
@@ -355,6 +362,9 @@ static void free_transport_handle_data(MQTTTRANSPORT_HANDLE_DATA* transport_data
     STRING_delete(transport_data->configPassedThroughUsername);
     STRING_delete(transport_data->topic_GetState);
     STRING_delete(transport_data->topic_NotifyState);
+#ifdef IOT_CORE_PATCH
+    STRING_delete(transport_data->topic_NotifyState_rejected);
+#endif
     STRING_delete(transport_data->topic_DeviceMethods);
     STRING_delete(transport_data->topic_InputQueue);
 
@@ -1204,7 +1214,8 @@ static int subscribeToNotifyStateIfNeeded(PMQTTTRANSPORT_HANDLE_DATA transport_d
     if (transport_data->topic_NotifyState == NULL)
     {
 #ifdef IOT_CORE_PATCH
-        transport_data->topic_NotifyState = STRING_construct_sprintf("$aws/things/%s/shadow/update/#", STRING_c_str(transport_data->device_id));
+        transport_data->topic_NotifyState = STRING_construct_sprintf("$aws/things/%s/shadow/update/accepted", STRING_c_str(transport_data->device_id));
+        transport_data->topic_NotifyState_rejected = STRING_construct_sprintf("$aws/things/%s/shadow/update/rejected", STRING_c_str(transport_data->device_id));
 #else
         transport_data->topic_NotifyState = STRING_construct(TOPIC_NOTIFICATION_STATE);
 #endif
@@ -1678,6 +1689,7 @@ static void mqtt_notification_callback(MQTT_MESSAGE_HANDLE msgHandle, void* call
                         {
                             /* CodesSRS_IOTHUB_MQTT_TRANSPORT_07_053: [ If type is IOTHUB_TYPE_DEVICE_METHODS, then on success mqtt_notification_callback shall call IoTHubClientCore_LL_DeviceMethodComplete. ] */
                             const APP_PAYLOAD* payload = mqttmessage_getApplicationMsg(msgHandle);
+                            // printf("%s(): payload:\r\n%.*s\r\n", __FUNCTION__, (int)payload->length, payload->message);
                             if (transportData->transport_callbacks.method_complete_cb(STRING_c_str(method_name), payload->message, payload->length, (void*)dev_method_info, transportData->transport_ctx) != 0)
                             {
                                 LogError("Failure: IoTHubClientCore_LL_DeviceMethodComplete");
@@ -2036,6 +2048,12 @@ static void SubscribeToMqttProtocol(PMQTTTRANSPORT_HANDLE_DATA transport_data)
             subscribe[subscribe_count].qosReturn = DELIVER_AT_MOST_ONCE;
             topic_subscription |= SUBSCRIBE_NOTIFICATION_STATE_TOPIC;
             subscribe_count++;
+#ifdef IOT_CORE_PATCH
+            subscribe[subscribe_count].subscribeTopic = STRING_c_str(transport_data->topic_NotifyState_rejected);
+            subscribe[subscribe_count].qosReturn = DELIVER_AT_MOST_ONCE;
+            topic_subscription |= SUBSCRIBE_NOTIFICATION_STATE_TOPIC;
+            subscribe_count++;
+#endif
         }
         if ((transport_data->topic_DeviceMethods != NULL) && (SUBSCRIBE_DEVICE_METHOD_TOPIC & transport_data->topics_ToSubscribe))
         {
@@ -2656,6 +2674,9 @@ static PMQTTTRANSPORT_HANDLE_DATA InitializeTransportHandleData(const IOTHUB_CLI
                         state->topic_MqttMessage = NULL;
                         state->topic_GetState = NULL;
                         state->topic_NotifyState = NULL;
+#ifdef IOT_CORE_PATCH
+                        state->topic_NotifyState_rejected = NULL;
+#endif
                         state->topic_DeviceMethods = NULL;
                         state->topic_InputQueue = NULL;
                         state->log_trace = state->raw_trace = false;
@@ -2874,6 +2895,11 @@ void IoTHubTransport_MQTT_Common_Unsubscribe_DeviceTwin(TRANSPORT_LL_HANDLE hand
             transport_data->topics_ToSubscribe &= ~SUBSCRIBE_NOTIFICATION_STATE_TOPIC;
             STRING_delete(transport_data->topic_NotifyState);
             transport_data->topic_NotifyState = NULL;
+#ifdef IOT_CORE_PATCH
+            transport_data->topics_ToSubscribe &= ~SUBSCRIBE_NOTIFICATION_STATE_TOPIC;
+            STRING_delete(transport_data->topic_NotifyState_rejected);
+            transport_data->topic_NotifyState_rejected = NULL;
+#endif
         }
     }
     else
@@ -3833,23 +3859,23 @@ static STRING_HANDLE iot_core_wrapper_mqttmessage_getTopicName(PMQTTTRANSPORT_HA
 
                 if (request_id == 0)
                 {
-                    return NULL;
+                    *known_topic = true;
+                    if (error_code == 200)
+                    {
+                        // There is an update request has been sent, and shadow send an accepted message.
+                        // We handle this accepted message as update request.
+                        return STRING_construct_sprintf("$iothub/twin/PATCH/properties/desired");
+                    }
+                    else
+                    {
+                        return NULL;
+                    }
                 }
                 else
                 {
                     *known_topic = true;
                     return STRING_construct_sprintf("$iothub/twin/res/%d/?$rid=%lu", error_code, request_id);
                 }
-            }
-            else if(InternStrEndWith(topic_resp, "/shadow/update/delta"))
-            {
-                *known_topic = true;
-                return NULL;
-            }
-            else if(InternStrEndWith(topic_resp, "/shadow/update/documents"))
-            {
-                *known_topic = true;
-                return STRING_construct_sprintf("$iothub/twin/PATCH/properties/desired");
             }
             else
             {
