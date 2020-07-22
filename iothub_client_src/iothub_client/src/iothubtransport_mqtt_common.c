@@ -3885,6 +3885,13 @@ static STRING_HANDLE iot_core_wrapper_mqttmessage_getTopicName(PMQTTTRANSPORT_HA
         }
         else if (InternStrnicmp(topic_resp, "device/", sizeof("device/") - 1) == 0)
         {
+            // this is direct method topic
+            *known_topic = true;
+            return STRING_construct_sprintf("%s", topic_resp);
+        }
+        else if (InternStrnicmp(topic_resp, "devices/", sizeof("devices/") - 1) == 0)
+        {
+            // this is cloud to device message
             *known_topic = true;
             return STRING_construct_sprintf("%s", topic_resp);
         }
