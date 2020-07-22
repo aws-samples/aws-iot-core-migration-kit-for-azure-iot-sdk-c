@@ -1,37 +1,35 @@
-# Patch for Azure IoT device SDK
+# Change to Azure IoT Device SDK for C for Interacting with AWS IoT Core
 
-# Abstract
-
-Azure IoT device SDK for C is a set of libraries to send and receiving message from Azure IoT Hub service. In order to make this SDK also be able to work on AWS IoT Core, this document describes how to configure and apply patch.
+Azure IoT Device SDK for C is a set of libraries for interacting with Azure IoT Hub service.  Applications that use MQTT to interact with the cloud using the Azure SDK can interact with AWS IoT Core service as well. This document describes how to do so by applying a change to the Azure IoT Device SDK for C.  In many cases, the application code will not need a changes in order to achieve this.
 
 # Introduction
 
-This document will start from very beginning to help you understand every detail settings. It includes:
+This document is a step-by-step guide. It includes:
 
 *   [Get and build Azure IoT device SDK for C](#Get-and-build-Azure-IoT-device-SDK-for-C)
-*   [Setup Azure IoT Hub for x509 connection, and run sample code.](#Setup-Azure-IoT-Hub)
+*   [Setup Azure IoT Hub for x509 connection, and run sample code](#Setup-Azure-IoT-Hub-for-x509-connection,-and-run-sample-code)
     *   [Setup a device](#Setup-a-device)
-    *   [Create and Manage x509 certificate](#Create-and-Manage-x509-certificate)
-    *   [Run x509 sample code](#Run-x509-sample-code)
-*   [Setup AWS IoT Core for same x509 certificate.](#Setup-AWS-IoT-Core-for-same-x509-certificate)
+    *   [Create and manage x.509 certificate](#Create-and-manage-x.509-certificate)
+    *   [Run x.509 sample code](#Run-x509-sample-code)
+*   [Setup AWS IoT Core to use the same x.509 certificate](#Setup-AWS-IoT-Core-to-use-the-same-x.509-certificate)
     *   [Register root CA](#Register-root-CA)
-    *   [Create Policy](#Create-Policy)
-    *   [Create Thing](#Create-Thing)
+    *   [Create policy](#Create-policy)
+    *   [Create thing](#Create-thing)
     *   [Verify the certificate](#Verify-the-certificate)
-*   [Apply patch to Azure IoT device SDK for C, run sample code.](#Apply-patch-to-Azure-IoT-device-SDK)
-    *   [Run x509 sample code with patch](#Run-x509-sample-code-with-patch)
-    *   [Run Device twins example which connects to AWS IoT Core Shadow](#Run-Device-twins-example-which-connects-to-AWS-IoT-Core-Shadow)
-    *   [Verify direct method on AWS IoT Core](#Verify-direct-method-on-AWS-IoT-Core)
-    *   [Verify direct method over http call](#Verify-direct-method-over-http-call)
+*   [Apply patch to Azure IoT device SDK for C, run sample code to connect to AWS IoT Core](#Apply-patch-to-Azure-IoT-device-SDK-for-C,-run-sample-code-to-connect-to-AWS-IoT-Core)
+    *   [Run x.509 sample code with patch](#Run-x.509-sample-code-with-patch)
+    *   [Run Device Twins example while it connects to AWS IoT Core Device Shadow](#Run-Device-Twins-example-while-it-connects-to-AWS-IoT-Core-Device-Shadow)
+    *   [Verify Direct Methods on AWS IoT Core](#Verify-Direct-Methods-on-AWS-IoT-Core)
+    *   [Verify Direct Methods over HTTP](#Verify-Direct-Methods-over-HTTP)
     *   [Go back to Azure IoT for debugging](#Go-back-to-Azure-IoT-for-debugging)
 *   [FAQ](#FAQ)
     *   [MQTT payload size limitation caused by MBEDTLS_SSL_MAX_FRAGMENT_LENGTH](#MQTT-payload-size-limitation-caused-by-MBEDTLS_SSL_MAX_FRAGMENT_LENGTH)
 
-Azure IoT devicde SDK support Linux, Mac OS, and Visual Studio. We use Ubuntu 18.04 on WSL in this document.
+Azure IoT devicde SDK for C supports Linux, Mac OS, and Visual Studio. We have used Ubuntu 18.04 on WSL for writing the procedures in this document.
 
 # Get and build Azure IoT device SDK for C
 
-You can skip this section if you already familiar with Azure IoT device SDK for C.
+You can skip this section if you are already familiar with Azure IoT device SDK for C.
 
 You can find the project of Azure IoT device SDK here: https://github.com/Azure/azure-iot-sdk-c
 
@@ -42,7 +40,7 @@ sudo apt-get update
 sudo apt-get install -y git cmake build-essential curl libcurl4-openssl-dev libssl-dev uuid-dev
 ```
 
-Get Azure IoT device SDK. There are several LTS (long-term support) branch on the github. We use branch **LTS-02-2020** here.
+Get Azure IoT device SDK. There are several LTS (long-term support) branches on GitHub. We use the LTS-02-2020 branch here.
 
 ```
 git clone -b lts_02_2020 git@github.com:Azure/azure-iot-sdk-c.git
@@ -59,9 +57,9 @@ cmake ..
 cmake --build . -- -j4
 ```
 
-# Setup Azure IoT Hub
+# Setup Azure IoT Hub for x509 connection, and run sample code
 
-In this section, we will setup a device on IoT Hub, and then configure x509 certificates.
+In this section, we will setup a device on Azure IoT Hub, then configure a x.509 certificate.
 
 ## Setup a device
 
@@ -83,7 +81,7 @@ Configure “Resource group”, “Region” and “IoT hub name”. Then select
 
 ![](doc/images/azure_iot_hub_setup_a_device_04.png)
 
-Review our settings, then select “Create”.
+Review all settings, then select “Create”.
 
 ![](doc/images/azure_iot_hub_setup_a_device_05.png)
 
@@ -111,11 +109,9 @@ Now you should see a new device in you IoT Hub devices list.
 ![](doc/images/azure_iot_hub_setup_a_device_10.png)
 
 
-## Create and Manage x509 certificate
+## Create and Manage x.509 certificate
 
-You can get detail information in this page: https://github.com/Azure/azure-iot-sdk-c/blob/master/tools/CACertificates/CACertificateOverview.md
-
-Here is a brief instructions.
+You can get detail information from this page: https://github.com/Azure/azure-iot-sdk-c/blob/master/tools/CACertificates/CACertificateOverview.md
 
 Copy certificates tools from Azure IoT SDK to your certificates folder:
 
@@ -145,7 +141,7 @@ Then select “Save”
 
 ![](doc/images/azure_iot_hub_setup_x509_03.png)
 
-Now there is a new certificate in your certificate list. Its status is “unverified”, and you need to prove of possession.
+Now there is a new certificate in your certificate list. Its status is “unverified”, and you need to prove possession.
 
 ![](doc/images/azure_iot_hub_setup_x509_04.png)
 
@@ -153,13 +149,13 @@ To prove of possession, select your certificate. It’ll pop-up a menu at right 
 
 ![](doc/images/azure_iot_hub_setup_x509_05.png)
 
-A verification code is generated. Then you need to sign this string as below:
+A verification code is generated. Then you need to sign this string like below:
 
 ```
 ./certGen.sh create_verification_certificate <Your Verification Code>
 ```
 
-The pem file of signed string is in here `certs/verification-code.cert.pem`. You need to upload this file into the field of “Verification Certificate .pem or .cer file.” Then select “Verify“.
+The pem file of the signed string is placed in `certs/verification-code.cert.pem`. You need to upload this file into the field of “Verification Certificate .pem or .cer file.” Then select “Verify“.
 
 ![](doc/images/azure_iot_hub_setup_x509_06.png)
 
@@ -173,14 +169,13 @@ Now you can create a certificate for your device. The last parameter is your dev
 ./certGen.sh create_device_certificate MyIotThing
 ```
 
-It will creates device’s certificate in `certs/new-device.cert.pem`, and  private key in `private/new-device.key.pem`.
-Now we can use this certificate and private key to make a x509 connection.
+It will creates device’s certificate in `certs/new-device.cert.pem`, and  private key in `private/new-device.key.pem`. Now we can use this certificate and private key to make a x.509 connection.
 
-## Run x509 sample code
+## Run x.509 sample code
 
-Use text editor to edit x509 sample code in Azure IoT Hub SDK. Here is the file name: `iothub_client/samples/iothub_ll_client_x509_sample/iothub_ll_client_x509_sample.c`.
+Use a text editor to edit x.509 sample code from Azure IoT Device SDK for C. Here is the file name: `iothub_client/samples/iothub_ll_client_x509_sample/iothub_ll_client_x509_sample.c`.
 
-There are configures needs fill in. The first one is `connectionString` . Here is an example:
+There are configuration parameters to fill in. The first one is `connectionString` . Here is an example:
 
 ```c
 static const char* connectionString = "HostName=my-things.azure-devices.net;DeviceId=MyIotThing;x509=true";
@@ -238,13 +233,13 @@ Confirmation callback received for message 5 with result IOTHUB_CLIENT_CONFIRMAT
 Press any key to continue
 ```
 
-# Setup AWS IoT Core for same x509 certificate
+# Setup AWS IoT Core to use the same x.509 certificate
 
-AWS IoT Core supports client certificates signed by other root certificate authorities (CA). So let’s add the same root CA to IoT Core.
+AWS IoT Core supports client certificates signed by custom certificate authorities (CA). So let’s add the same root CA to IoT Core.
 
 Go to AWS IoT core page: https://us-west-2.console.aws.amazon.com/iot/
 
-Change region if you want at upper-right corner.
+Change to a proper region at the upper-right corner of the console.
 
 ![](doc/images/aws_iot_core_setup_ca_01.png)
 
@@ -262,14 +257,14 @@ Scroll down, select “Select CA certificate”. Upload the file `certs/azure-io
 
 ![](doc/images/aws_iot_core_setup_ca_04.png)
 
-Copy the string in Step 3 section. This string also needs signed by root CA.
+Copy the string from Step 3 section. This string needs to be signed by the root CA following the steps below.
 
 Go to your certificate folder. Input this command to sign this string:
 
 ```
 ./certGen.sh create_verification_certificate <Your Verification Code>
 ```
-Now we select “Select verification certificate” in Step 6. Upload the verification result `certs/verification-code.cert.pem` in your certification folder.
+Now click “Select verification certificate” in Step 6. Upload the verification result `certs/verification-code.cert.pem` in your certificate folder.
 
 Check “Activate CA certificate” and “Enable auto-registration of device certificates”. Then select “Register CA certificate”.
 
@@ -289,7 +284,7 @@ Select “Create a policy”
 
 ![](doc/images/aws_iot_core_setup_policy_02.png)
 
-Input the policy name. Input `iot:*` in “Action”. Input `*` in “Resource ARN”. Check “Allow”. Select “Create”. 
+Input the policy name. Input `iot:*` in “Action”. Input `*` in “Resource ARN”. Check “Allow”. Select “Create”.  Note that this policy is not suitable for real applications because it’s too permissive.  This example is for demonstration purpose only.
 
 ![](doc/images/aws_iot_core_setup_policy_03.png)
 
@@ -319,7 +314,7 @@ Choose “Use my certificate”.
 
 ![](doc/images/aws_iot_core_setup_thing_05.png)
 
-Select CA that we just added. Then select “Next”.
+Select the CA that we just added. Then select “Next”.
 
 ![](doc/images/aws_iot_core_setup_thing_06.png)
 
@@ -331,7 +326,7 @@ Check the policy we just created. Then select “Register Thing”.
 
 ![](doc/images/aws_iot_core_setup_thing_08.png)
 
-Now we created a thing with same root CA and device certificate in Azure IoT SDK.
+Now we’ve created a thing in AWS IoT Core with the same root CA and device certificate as in Azure IoT Hub.  You can use different ones of course, as long as you make corresponding changes in the firmware to match.
 
 ![](doc/images/aws_iot_core_setup_thing_09.png)
 
@@ -380,17 +375,17 @@ SSL-Session:
 ---
 ```
 
-# Apply patch to Azure IoT device SDK
+# Apply patch to Azure IoT device SDK for C, run sample code to connect to AWS IoT Core
 
-The patch is in a form of source code because there are severl long-term support branch in Azure IoT devicde SDK. We use branch **LTS-02-2020** as reference. Please copy this file "[iothub_client/src/iothubtransport_mqtt_common.c](iothub_client/src/iothubtransport_mqtt_common.c)" to "[https://github.com/Azure/azure-iot-sdk-c/blob/lts_02_2020/iothub_client/src/iothubtransport_mqtt_common.c](https://github.com/Azure/azure-iot-sdk-c/blob/lts_02_2020/iothub_client/src/iothubtransport_mqtt_common.c)".
+There is one file to patch. It’s locate at "[iothub_client/src/iothubtransport_mqtt_common.c](iothub_client/src/iothubtransport_mqtt_common.c)". Overwrite the file with the same name in your copy of the Azure IoT device SDK.
 
-For the ideas of how this patch works, please refer to "[Migration from Azure IoT Hub to AWS IoT Core.pdf](doc/Migration%20from%20Azure%20IoT%20Hub%20to%20AWS%20IoT%20Core.pdf)" for details.
+To understand how the patch works, please refer to "[Migration from Azure IoT Hub to AWS IoT Core.pdf](doc/Migration%20from%20Azure%20IoT%20Hub%20to%20AWS%20IoT%20Core.pdf)".
 
-## Run x509 sample code with patch
+## Run x.509 sample code with patch
 
-We have run x509 sample code, and it connects to Azure IoT Hub. Now we can modify the connect string and make it connect to AWS IoT Core.
+We have run x.509 sample code to connect to Azure IoT Hub. Now we can modify the connect string and make it connect to AWS IoT Core.
 
-Use text editor to modify sample code ``iothub_client/samples/iothub_ll_client_x509_sample/iothub_ll_client_x509_sample.c` . Modify `connectionString` as below. We change host address to endpoint address, and device ID to our thing name.
+Use a text editor to modify sample code ``iothub_client/samples/iothub_ll_client_x509_sample/iothub_ll_client_x509_sample.c` . Modify `connectionString` as below. We change host address to endpoint address, and device ID to our thing name.
 
 ```c
 static const char* connectionString = \
@@ -398,19 +393,19 @@ static const char* connectionString = \
     "DeviceId=MyIotThing;x509=true";
 ```
 
-We don’t need to change `x509certificate` and `x509privatekey` because we use same certificate and private key.
+We don’t need to change `x509certificate` and `x509privatekey` because we use the same certificate and private key in this example.
 
-Before we build and run, we can open test console in IoT core to monitor MQTT message.
+Before running the sample, open the test console in AWS IoT Core to monitor MQTT messages.
 
 Select “Test” in the left menu in AWS IoT Core.
 
 ![](doc/images/aws_iot_core_run_x509_sample_code_01.png)
 
-Subscribe topic `#` . It’s a wildcard topic that let use monitor all MQTT message at this MQTT broker. Then select “Subscribe to topic”.
+Subscribe to topic `#` . It’s a wildcard that matches to all MQTT topics. Then select “Subscribe to topic”.
 
 ![](doc/images/aws_iot_core_run_x509_sample_code_02.png)
 
-Now can build and run our x509 example. It’s same command as we test it on Azure IoT Hub.
+Build and run the x.509 example now. 
 
 ```
 cd cmake
@@ -418,16 +413,17 @@ cmake --build . -- -j4
 ./iothub_client/samples/iothub_ll_client_x509_sample/iothub_ll_client_x509_sample
 ```
 
-The execution result should be the same as we did it to connect to Azure IoT Hub.
+The execution result should be the same as running it on Azure IoT Hub before.
 
 You can also see the results on AWS IoT Core test console:
 
 ![](doc/images/aws_iot_core_run_x509_sample_code_03.png)
 
-## Run Device twins example which connects to AWS IoT Core Shadow
+## Run Device Twins example while it connects to AWS IoT Core Device Shadow
 
-In Azure IoT device SDK, there is an example for testing device twins. The file locates here `iothub_client/samples/iothub_client_device_twin_and_methods_sample/iothub_client_device_twin_and_methods_sample.c` . After apply patch, the Azure SDK has ability to connect to shadow, and get and update properties as they did in Azure IoT Hub.
-Like x509 example, we need to modify the connection configurations. We can use same configuration in x509 example:
+In Azure IoT device SDK, there is an example for testing device twins -  `iothub_client/samples/iothub_client_device_twin_and_methods_sample/iothub_client_device_twin_and_methods_sample.c` . After applying the patch, the SDK can interact with the AWS IoT Device Shadow.  
+
+Modify the connection configuration, while keeping the same certificate and private key:
 
 ```c
 static const char* connectionString = \
@@ -454,7 +450,7 @@ static const char* x509privatekey =
 "-----END RSA PRIVATE KEY-----\n";
 ```
 
-You also need to apply device certificate and private key by apply options like `IoTHubDeviceClient_SetOption(iotHubClientHandle, OPTION_X509_CERT, x509certificate)` and `(IoTHubDeviceClient_SetOption(iotHubClientHandle, OPTION_X509_PRIVATE_KEY, x509privatekey)` . So we add them in the position as below:
+To tell the SDK to use x.509 certificate for the connection, we need to add calls to `IoTHubDeviceClient_SetOption` like below:
 
 ```c
 // Uncomment the following lines to enable verbose logging (e.g., for debugging).
@@ -525,7 +521,7 @@ Info: modified payload(216): {"desired":{"$version":14},"reported":{"lastOilChan
 Device Twin reported properties update completed with result: 200
 ```
 
-This sample code would get and update state at beginning. So the device state has been updated to shadow. To check this state, select thing.
+This sample code will get and update the device shadow when it runs. To check whether it works, select the thing.
 
 ![](doc/images/aws_iot_core_run_device_twins_sample_code_01.png)
 
@@ -533,13 +529,13 @@ Select “Shadows”. And you can see the reported state from device.
 
 ![](doc/images/aws_iot_core_run_device_twins_sample_code_02.png)
 
-Now let’s modify shadow state manually and check how device response.
+Now let’s modify shadow state manually and check how device responses.
 
 Select “Edit” at the right side.
 
 ![](doc/images/aws_iot_core_run_device_twins_sample_code_03.png)
 
-Modify shadow state as below. We add a desired state in desired max speed.
+Modify shadow state as below. We add a desired state for desired_maxSpeed.
 
 ```
 {
@@ -568,8 +564,7 @@ Then select “Save”.
 
 ![](doc/images/aws_iot_core_run_device_twins_sample_code_04.png)
 
-
-Then you can see device got `desired_maxSpeed` desired state.
+Then you can see device getting the `desired_maxSpeed` desired state.
 
 ```
 Info: original topic_resp: $aws/things/MyIotThing/shadow/update/documents
@@ -590,25 +585,25 @@ Info: original topic_resp: $aws/things/MyIotThing/shadow/update/accepted
 Info: modified topic_resp: null
 ```
 
-## Verify direct method on AWS IoT Core
+## Verify Direct Methods on AWS IoT Core
 
-You can also test direct method via MQTT message.
+You can also test direct methods by exchanging MQTT messages.
 
-Go to test console. Subscribe topic `#` to monitor MQTT messages. Then input topic `device/MyIotThing/method/getCarVIN/1234abcd1234abcd` in Publish section.  The method name is `getCarVIN` . The numbers append are request id and they can be random numbers for test purpose. Now we select “Publish to topic”.
+Go to Test console. Subscribe to topic `#` to monitor all MQTT messages. Then input topic `device/MyIotThing/method/getCarVIN/1234abcd1234abcd` in Publish section.  The method name is `getCarVIN` . The numbers append are request id and they can be random numbers for test purpose. Now we select “Publish to topic”.
 
 ![](doc/images/aws_iot_core_run_device_twins_sample_code_05.png)
 
-We got 2 MQTT messages. The earlier one is the same one we just publish. The later one is the response from device.
+On the console you should see two MQTT messages. The first one is the what you just published. The second is the response from device.
 
 ![](doc/images/aws_iot_core_run_device_twins_sample_code_06.png)
 
-## Verify direct method over http call
+## Verify Direct Methods over HTTP
 
-As mentioned in [Azure IoT Hub Direct Method](https://docs.microsoft.com/en-us/azure/iot-hub/iot-hub-devguide-direct-methods), you can verify direct method over http call. Please refer to [Direct Method](../direct_method/README.md) for more details.
+As described in [Azure IoT Hub Direct Method](https://docs.microsoft.com/en-us/azure/iot-hub/iot-hub-devguide-direct-methods), you can verify direct methods over HTTP. This project includes an AWS Lambda serverless program that you can deploy into your AWS account for handling HTTP calls of direct methods.  Please see to [Direct Method](../direct_method/README.md)for details.
 
 ## Go back to Azure IoT for debugging
 
-If you want to use Azure IoT device SDK with patch to connect to Azure IoT Hub, you just need to disable the compile option `IOT_CORE_PATCH` in `iothub_client/src/iothubtransport_mqtt_common.c` .
+If you want to go back to connect to Azure IoT Hub, just disable the compile option `IOT_CORE_PATCH` in `iothub_client/src/iothubtransport_mqtt_common.c` .
 
 ```c
 //#define IOT_CORE_PATCH
