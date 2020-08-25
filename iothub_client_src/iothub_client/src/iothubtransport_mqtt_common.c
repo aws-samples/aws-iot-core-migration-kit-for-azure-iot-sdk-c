@@ -60,6 +60,9 @@
 
 #define IOT_CORE_PATCH
 #ifdef IOT_CORE_PATCH
+#define IOT_CORE_PATCH_SUPPORT_SUB_PUB
+#endif
+#ifdef IOT_CORE_PATCH
 #include "parson.h"
 #endif
 
@@ -86,7 +89,7 @@ static const char* PROPERTY_SEPARATOR = "&";
 static const char* REPORTED_PROPERTIES_TOPIC = "$iothub/twin/PATCH/properties/reported/?$rid=%"PRIu16;
 static const char* GET_PROPERTIES_TOPIC = "$iothub/twin/GET/?$rid=%"PRIu16;
 #ifdef IOT_CORE_PATCH
-static const char* DEVICE_METHOD_RESPONSE_TOPIC = "device/method/res/%d/%s";
+static const char* DEVICE_METHOD_RESPONSE_TOPIC = "device/methods/res/%d/%s";
 #else
 static const char* DEVICE_METHOD_RESPONSE_TOPIC = "$iothub/methods/res/%d/?$rid=%s";
 #endif
@@ -117,6 +120,7 @@ static const char* DIAGNOSTIC_CONTEXT_CREATION_TIME_UTC_PROPERTY = "creationtime
 #define SUBSCRIBE_DEVICE_METHOD_TOPIC           0x0008
 #define SUBSCRIBE_INPUT_QUEUE_TOPIC             0x0010
 #ifdef IOT_CORE_PATCH
+/* add 1 more topic to handle shadow's update/rejected in topic_NotifyState_rejected */
 #define SUBSCRIBE_TOPIC_COUNT                   6
 #else
 #define SUBSCRIBE_TOPIC_COUNT                   5
@@ -1025,7 +1029,7 @@ static int publish_device_twin_get_message(MQTTTRANSPORT_HANDLE_DATA* transport_
     {
 #ifdef IOT_CORE_PATCH
         STRING_HANDLE payload = STRING_construct_sprintf("{\"clientToken\":\"%" PRIu16 "\"}", mqtt_info->packet_id);
-        MQTT_MESSAGE_HANDLE mqtt_get_msg = mqttmessage_create(mqtt_info->packet_id, STRING_c_str(msg_topic), DELIVER_AT_MOST_ONCE, STRING_c_str(payload), STRING_length(payload));
+        MQTT_MESSAGE_HANDLE mqtt_get_msg = mqttmessage_create(mqtt_info->packet_id, STRING_c_str(msg_topic), DELIVER_AT_MOST_ONCE, (const uint8_t *)STRING_c_str(payload), STRING_length(payload));
         STRING_delete(payload);
 #else
         MQTT_MESSAGE_HANDLE mqtt_get_msg = mqttmessage_create(mqtt_info->packet_id, STRING_c_str(msg_topic), DELIVER_AT_MOST_ONCE, NULL, 0);
@@ -1156,7 +1160,7 @@ static int publish_device_twin_message(MQTTTRANSPORT_HANDLE_DATA* transport_data
         {
 #ifdef IOT_CORE_PATCH
             STRING_HANDLE shadow_data = STRING_construct_sprintf("{\"state\":{\"reported\":%.*s},\"clientToken\":\"%" PRIu16 "\"}", data_buff->size, data_buff->buffer, mqtt_info->packet_id);
-            MQTT_MESSAGE_HANDLE mqtt_rpt_msg = mqttmessage_create_in_place(mqtt_info->packet_id, STRING_c_str(msgTopic), DELIVER_AT_MOST_ONCE, STRING_c_str(shadow_data), STRING_length(shadow_data));
+            MQTT_MESSAGE_HANDLE mqtt_rpt_msg = mqttmessage_create_in_place(mqtt_info->packet_id, STRING_c_str(msgTopic), DELIVER_AT_MOST_ONCE, (const uint8_t *)STRING_c_str(shadow_data), STRING_length(shadow_data));
 #else
             MQTT_MESSAGE_HANDLE mqtt_rpt_msg = mqttmessage_create_in_place(mqtt_info->packet_id, STRING_c_str(msgTopic), DELIVER_AT_MOST_ONCE, data_buff->buffer, data_buff->size);
 #endif
@@ -1424,6 +1428,13 @@ static int extractMqttProperties(IOTHUB_MESSAGE_HANDLE IoTHubMessage, const char
                     }
                     else
                     {
+#ifdef IOT_CORE_PATCH
+                        if (Map_AddOrUpdate(propertyMap, "topic", topic_name) != MAP_OK)
+                        {
+                            LogError("Map_AddOrUpdate failed.");
+                            result = MU_FAILURE;
+                        }
+#endif
                         if (isSystemProperty(tokenData))
                         {
                             const char* iterator = tokenData;
@@ -1565,7 +1576,7 @@ static void mqtt_notification_callback(MQTT_MESSAGE_HANDLE msgHandle, void* call
         bool known_topic = false;
         STRING_HANDLE topic_resp_modified = iot_core_wrapper_mqttmessage_getTopicName((PMQTTTRANSPORT_HANDLE_DATA)callbackCtx, msgHandle, &known_topic);
         const char* topic_resp = STRING_c_str(topic_resp_modified);
-        LogInfo("modified topic_resp: %s\r\n", (topic_resp == NULL) ? "null" : topic_resp);
+        LogInfo("modified topic_resp: %s", (topic_resp == NULL) ? "null" : topic_resp);
 #else
         const char* topic_resp = mqttmessage_getTopicName(msgHandle);
 #endif
@@ -1689,7 +1700,6 @@ static void mqtt_notification_callback(MQTT_MESSAGE_HANDLE msgHandle, void* call
                         {
                             /* CodesSRS_IOTHUB_MQTT_TRANSPORT_07_053: [ If type is IOTHUB_TYPE_DEVICE_METHODS, then on success mqtt_notification_callback shall call IoTHubClientCore_LL_DeviceMethodComplete. ] */
                             const APP_PAYLOAD* payload = mqttmessage_getApplicationMsg(msgHandle);
-                            // printf("%s(): payload:\r\n%.*s\r\n", __FUNCTION__, (int)payload->length, payload->message);
                             if (transportData->transport_callbacks.method_complete_cb(STRING_c_str(method_name), payload->message, payload->length, (void*)dev_method_info, transportData->transport_ctx) != 0)
                             {
                                 LogError("Failure: IoTHubClientCore_LL_DeviceMethodComplete");
@@ -2368,7 +2378,11 @@ static int SendMqttConnectMsg(PMQTTTRANSPORT_HANDLE_DATA transport_data)
                 options.password = sasToken;
             }
             options.keepAliveInterval = transport_data->keepAliveValue;
+#ifdef IOT_CORE_PATCH
+            options.useCleanSession = true;
+#else
             options.useCleanSession = false;
+#endif
             options.qualityOfServiceValue = DELIVER_AT_LEAST_ONCE;
 
             if (GetTransportProviderIfNecessary(transport_data) == 0)
@@ -2969,7 +2983,7 @@ int IoTHubTransport_MQTT_Common_Subscribe_DeviceMethod(IOTHUB_DEVICE_HANDLE hand
         {
             /*Codes_SRS_IOTHUB_MQTT_TRANSPORT_12_004 : [IoTHubTransport_MQTT_Common_Subscribe_DeviceMethod shall construct the DEVICE_METHOD topic string for subscribe.]*/
 #ifdef IOT_CORE_PATCH
-            transport_data->topic_DeviceMethods = STRING_construct_sprintf("device/%s/method/#", STRING_c_str(transport_data->device_id));
+            transport_data->topic_DeviceMethods = STRING_construct_sprintf("device/%s/methods/#", STRING_c_str(transport_data->device_id));
 #else
             transport_data->topic_DeviceMethods = STRING_construct(TOPIC_DEVICE_METHOD_SUBSCRIBE);
 #endif
@@ -3486,6 +3500,56 @@ IOTHUB_CLIENT_RESULT IoTHubTransport_MQTT_Common_SetOption(TRANSPORT_LL_HANDLE h
                 }
             }
         }
+#ifdef IOT_CORE_PATCH_SUPPORT_SUB_PUB
+        else if (strcmp("mqtt_subscribe", option) == 0)
+        {
+            uint16_t packet_id = get_next_packet_id(transport_data);
+            SUBSCRIBE_PAYLOAD subscribe = {
+                    .subscribeTopic = (const char *) value,
+                    .qosReturn = DELIVER_AT_MOST_ONCE
+            };
+            if (mqtt_client_subscribe(transport_data->mqttClient, packet_id, &subscribe, 1) != 0)
+            {
+                LogError("Failure: mqtt_client_subscribe returned error.");
+                return IOTHUB_CLIENT_ERROR;
+            }
+            else
+            {
+                return IOTHUB_CLIENT_OK;
+            }
+        }
+        else if (strcmp("mqtt_unsubscribe", option) == 0)
+        {
+            const char* unsubscribe[1];
+            unsubscribe[0] = (const char *) value;
+            if (mqtt_client_unsubscribe(transport_data->mqttClient, get_next_packet_id(transport_data), unsubscribe, 1) != 0)
+            {
+                LogError("Failure: mqtt_client_unsubscribe returned error.");
+                return IOTHUB_CLIENT_ERROR;
+            }
+            else
+            {
+                return IOTHUB_CLIENT_OK;
+            }
+        }
+        else if (strcmp("mqtt_publish", option) == 0)
+        {
+            MQTT_MESSAGE_HANDLE mqttMsg = (MQTT_MESSAGE_HANDLE)value;
+            const APP_PAYLOAD *payload = mqttmessage_getApplicationMsg(mqttMsg);
+
+            MQTT_MESSAGE_HANDLE mqttMsgDup = mqttmessage_create(get_next_packet_id(transport_data), mqttmessage_getTopicName(mqttMsg), mqttmessage_getQosType(mqttMsg), payload->message, payload->length);
+            if (mqtt_client_publish(transport_data->mqttClient, (MQTT_MESSAGE_HANDLE)value) != 0)
+            {
+                LogError("Failed attempting to publish mqtt message");
+                result = IOTHUB_CLIENT_ERROR;
+            }
+            else
+            {
+                result = IOTHUB_CLIENT_OK;
+            }
+            mqttmessage_destroy(mqttMsgDup);
+        }
+#endif
         else
         {
             /* Codes_SRS_IOTHUB_MQTT_TRANSPORT_07_039: [If the option parameter is set to "x509certificate" then the value shall be a const char of the certificate to be used for x509.] */
@@ -3781,7 +3845,7 @@ static uint16_t iot_core_get_rid(MQTT_MESSAGE_HANDLE msgHandle)
     char* json = (char *) malloc(payload->length + 1);
     if (json == NULL)
     {
-        LogError("out of memory\r\n");
+        LogError("out of memory");
         return 0;
     }
     snprintf(json, (int)payload->length + 1, "%.*s", (int)payload->length, payload->message);
@@ -3812,7 +3876,7 @@ static STRING_HANDLE iot_core_wrapper_mqttmessage_getTopicName(PMQTTTRANSPORT_HA
     const char* topic_resp = mqttmessage_getTopicName(msgHandle);
     size_t request_id = 0;
 
-    LogInfo("original topic_resp: %s\r\n", (topic_resp == NULL) ? "null" : topic_resp);
+    LogInfo("original topic_resp: %s", (topic_resp == NULL) ? "null" : topic_resp);
 
     *known_topic = false;
 
@@ -3822,17 +3886,18 @@ static STRING_HANDLE iot_core_wrapper_mqttmessage_getTopicName(PMQTTTRANSPORT_HA
     }
     else
     {
-        size_t topic_resp_len = strlen(topic_resp);
-
         if (InternStrnicmp(topic_resp, "$aws/things", sizeof("$aws/things") - 1) == 0)
         {
             if(InternStrEndWith(topic_resp, "/shadow/get/accepted") || InternStrEndWith(topic_resp, "/shadow/get/rejected"))
             {
-                int error_code = 200;
+                /* It uses HTTP status code. Please refer to:
+                 * https://docs.microsoft.com/en-us/azure/iot-hub/iot-hub-mqtt-support#retrieving-a-device-twins-properties
+                 **/
+                int status_code = 200;
 
                 if (InternStrEndWith(topic_resp, "/shadow/get/rejected"))
                 {
-                    error_code = 500;
+                    status_code = 500;
                 }
 
                 request_id = iot_core_get_rid(msgHandle);
@@ -3843,16 +3908,19 @@ static STRING_HANDLE iot_core_wrapper_mqttmessage_getTopicName(PMQTTTRANSPORT_HA
                 else
                 {
                     *known_topic = true;
-                    return STRING_construct_sprintf("$iothub/twin/res/%d/?$rid=%lu", error_code, request_id);
+                    return STRING_construct_sprintf("$iothub/twin/res/%d/?$rid=%lu", status_code, request_id);
                 }
             }
             else if(InternStrEndWith(topic_resp, "/shadow/update/accepted") || InternStrEndWith(topic_resp, "/shadow/update/rejected"))
             {
-                int error_code = 200;
+                /* It uses HTTP status code. Please refer to:
+                 * https://docs.microsoft.com/en-us/azure/iot-hub/iot-hub-mqtt-support#update-device-twins-reported-properties
+                 **/
+                int status_code = 200;
 
                 if (InternStrEndWith(topic_resp, "/shadow/update/rejected"))
                 {
-                    error_code = 500;
+                    status_code = 500;
                 }
 
                 request_id = iot_core_get_rid(msgHandle);
@@ -3860,10 +3928,9 @@ static STRING_HANDLE iot_core_wrapper_mqttmessage_getTopicName(PMQTTTRANSPORT_HA
                 if (request_id == 0)
                 {
                     *known_topic = true;
-                    if (error_code == 200)
+                    if (status_code == 200)
                     {
-                        // There is an update request has been sent, and shadow send an accepted message.
-                        // We handle this accepted message as update request.
+                        // Shadow document was updated from cloud, and shadow send an accepted message.
                         return STRING_construct_sprintf("$iothub/twin/PATCH/properties/desired");
                     }
                     else
@@ -3874,16 +3941,16 @@ static STRING_HANDLE iot_core_wrapper_mqttmessage_getTopicName(PMQTTTRANSPORT_HA
                 else
                 {
                     *known_topic = true;
-                    return STRING_construct_sprintf("$iothub/twin/res/%d/?$rid=%lu", error_code, request_id);
+                    return STRING_construct_sprintf("$iothub/twin/res/%d/?$rid=%lu", status_code, request_id);
                 }
             }
             else
             {
-                LogError("Unexpected topic end: %s\r\n", topic_resp);
+                LogError("Unexpected topic end: %s", topic_resp);
                 return NULL;
             }
         }
-        else if (InternStrnicmp(topic_resp, "device/", sizeof("device/") - 1) == 0)
+        else if (InternStrnicmp(topic_resp, TOPIC_DEVICE_METHOD_PREFIX, sizeof(TOPIC_DEVICE_METHOD_PREFIX) - 1) == 0)
         {
             // this is direct method topic
             *known_topic = true;
@@ -3897,8 +3964,7 @@ static STRING_HANDLE iot_core_wrapper_mqttmessage_getTopicName(PMQTTTRANSPORT_HA
         }
         else
         {
-            LogError("Unexpected topic begin\r\n");
-            return NULL;
+            return STRING_construct_sprintf("%s", topic_resp);
         }
     }
     return NULL;
@@ -3917,12 +3983,12 @@ static APP_PAYLOAD* iot_core_wrapper_mqttmessage_getApplicationMsg(MQTT_MESSAGE_
 
     const APP_PAYLOAD* payload = mqttmessage_getApplicationMsg(msgHandle);
 
-    LogInfo("original payload(%zu): %.*s\r\n", payload->length, (int)payload->length, payload->message);
+    LogInfo("original payload(%zu): %.*s", payload->length, (int)payload->length, payload->message);
 
     char* json = (char *) malloc(payload->length + 1);
     if (json == NULL)
     {
-        LogError("out of memory\r\n");
+        LogError("out of memory");
         return NULL;
     }
     snprintf(json, (int)payload->length + 1, "%.*s", (int)payload->length, payload->message);
@@ -3965,7 +4031,7 @@ static APP_PAYLOAD* iot_core_wrapper_mqttmessage_getApplicationMsg(MQTT_MESSAGE_
     APP_PAYLOAD *iot_hub_payload = (APP_PAYLOAD *) malloc (sizeof(APP_PAYLOAD));
     if (iot_hub_payload == NULL)
     {
-        LogError("out of memory\r\n");
+        LogError("out of memory");
         return NULL;
     }
 
@@ -3994,16 +4060,15 @@ static APP_PAYLOAD* iot_core_wrapper_mqttmessage_getApplicationMsg(MQTT_MESSAGE_
         );
     }
 
-    iot_hub_payload->message = (char *) malloc (STRING_length(iot_hub_json_handle) + 1);
+    iot_hub_payload->message = (uint8_t *) malloc (STRING_length(iot_hub_json_handle) + 1);
     if (iot_hub_payload->message == NULL)
     {
-        LogError("out of memory\r\n");
+        LogError("out of memory");
         return NULL;
     }
     snprintf((char *)iot_hub_payload->message, STRING_length(iot_hub_json_handle) + 1, "%s", STRING_c_str(iot_hub_json_handle));
     iot_hub_payload->length = STRING_length(iot_hub_json_handle);
     STRING_delete(iot_hub_json_handle);
-
 
     json_value_free(root_value);
     if (desired != NULL)
@@ -4015,7 +4080,7 @@ static APP_PAYLOAD* iot_core_wrapper_mqttmessage_getApplicationMsg(MQTT_MESSAGE_
         free(reported);
     }
 
-    LogInfo("modified payload(%zu): %.*s\r\n", iot_hub_payload->length, (int)iot_hub_payload->length, iot_hub_payload->message);
+    LogInfo("modified payload(%zu): %.*s", iot_hub_payload->length, (int)iot_hub_payload->length, iot_hub_payload->message);
 
     return iot_hub_payload;
 }

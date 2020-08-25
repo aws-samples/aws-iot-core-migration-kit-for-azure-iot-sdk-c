@@ -22,6 +22,8 @@ This document is a step-by-step guide. It includes:
     *   [Verify Direct Methods on AWS IoT Core](#Verify-Direct-Methods-on-AWS-IoT-Core)
     *   [Verify Direct Methods over HTTP](#Verify-Direct-Methods-over-HTTP)
     *   [Go back to Azure IoT for debugging](#Go-back-to-Azure-IoT-for-debugging)
+*   [Optional Features](#Optional-Features)
+    * [Subscribe and publish custom topics](#Subscribe-and-publish-custom-topics)
 *   [FAQ](#FAQ)
     *   [MQTT payload size limitation caused by MBEDTLS_SSL_MAX_FRAGMENT_LENGTH](#MQTT-payload-size-limitation-caused-by-MBEDTLS_SSL_MAX_FRAGMENT_LENGTH)
 
@@ -589,7 +591,7 @@ Info: modified topic_resp: null
 
 You can also test direct methods by exchanging MQTT messages.
 
-Go to Test console. Subscribe to topic `#` to monitor all MQTT messages. Then input topic `device/MyIotThing/method/getCarVIN/1234abcd1234abcd` in Publish section.  The method name is `getCarVIN` . The numbers append are request id and they can be random numbers for test purpose. Now we select “Publish to topic”.
+Go to test console. Subscribe topic `#` to monitor MQTT messages. Then input topic `device/MyIotThing/methods/getCarVIN/1234abcd1234abcd` in Publish section.  The method name is `getCarVIN` . The numbers append are request id and they can be random numbers for test purpose. Now we select “Publish to topic”.
 
 ![](doc/images/aws_iot_core_run_device_twins_sample_code_05.png)
 
@@ -610,6 +612,56 @@ If you want to go back to connect to Azure IoT Hub, just disable the compile opt
 ```
 
 You also need to change the connection string in your sample code, then rebuild.
+
+# Optional Features
+
+## Subscribe and publish custom topics
+
+The Azure IoT SDK for C doesn’t support publishing and subscribing to arbitrary MQTT topics.  The patch in this project provides the capability of subscribing to arbitrary topics.  This support is enabled by default in the patch.  You can disable it by commenting out the line that defines “**IOT_CORE_PATCH_SUPPORT_SUB_PUB**” at the beginning of iothubtransport_mqtt_common.c.
+
+Here is an example of how to publish to a custom topic.
+
+```
+MQTT_MESSAGE_HANDLE mqttMsg = mqttmessage_create(0, "mytopic", DELIVER_AT_LEAST_ONCE, "Hello World!", sizeof("Hello World") - 1);
+IoTHubDeviceClient_LL_SetOption(device_ll_handle, "mqtt_publish", mqttMsg);
+mqttmessage_destroy(mqttMsg);
+```
+
+To subscribe to a custom topic, you need to register a message callback first.
+
+```
+IoTHubClientCore_LL_SetMessageCallback(device_ll_handle, messageCallback, NULL);
+```
+
+Then you can subscribe to a custom topic:
+
+```
+IoTHubDeviceClient_LL_SetOption(device_ll_handle, "mqtt_subscribe", "mytopic");
+```
+
+In your callback handler, you can get the topic and payload like this:
+
+```
+static IOTHUBMESSAGE_DISPOSITION_RESULT messageCallback(IOTHUB_MESSAGE_HANDLE message, void* user_context)
+{
+    const unsigned char* buff_msg;
+    size_t buff_len;
+
+    const char* topic = IoTHubMessage_GetProperty(message, "topic");
+    if (topic != NULL)
+    {
+        printf("topic: %s\r\n", topic);
+    }
+
+    if (IoTHubMessage_GetByteArray(message, &buff_msg, &buff_len) == IOTHUB_MESSAGE_OK)
+    {
+        printf("Payload(%d): \r\n%.*s\r\n", (int)buff_len, (int)buff_len, buff_msg);
+    }
+
+    return IOTHUBMESSAGE_ACCEPTED;
+}
+```
+
 
 ----------------------------------------------------------------
 

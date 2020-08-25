@@ -30,8 +30,8 @@ myAWSIoTMQTTClient.configureMQTTOperationTimeout(5)  # 5 sec
 # Connect and subscribe to AWS IoT
 myAWSIoTMQTTClient.connect()
 
-REQUEST_TOPIC_FORMAT = 'device/%s/method/%s/%s'
-RESPONSE_TOPIC_FORMAT = 'device/method/res/+/%s'
+REQUEST_TOPIC_FORMAT = 'device/%s/methods/%s/%s'
+RESPONSE_TOPIC_FORMAT = 'device/methods/res/+/%s'
 
 def generateCallback(apiResponse, responseTopic, deviceResponded):
     def customCallback(client, userdata, message):

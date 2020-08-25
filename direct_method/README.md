@@ -57,7 +57,7 @@ You can find your API Gateway Endpoint URL in the output values displayed after 
 ### Subscribe to Direct Method Request Topic
 
 1. Navigate to the [IoT Core console](https://console.aws.amazon.com/iot/home), click "Test" on the left menu.
-2. Enter `device/<myThingName>/method/<myMethodName>/+` under "Subscription topic" and click "Subscribe to topic".
+2. Enter `device/<myThingName>/methods/<myMethodName>/+` under "Subscription topic" and click "Subscribe to topic".
 3. Leave the browser tab open as we will respond to the Direct Method here later.
 
 ### Fire the Direct Method API
@@ -92,7 +92,7 @@ You can find your API Gateway Endpoint URL in the output values displayed after 
 }
 ```
 
-3. Enter `device/method/res/200/<requestId>` under "Publish". The `<requestId>` should be the same as the one from the request message above.
+3. Enter `device/methods/res/200/<requestId>` under "Publish". The `<requestId>` should be the same as the one from the request message above.
 4. Leave the payload as the default one `{"message": "Hello from AWS IoT console"}` and click "Publish to topic".
 5. Go back to the API Gateway Test page and you should see an API response is received with status code 200 and payload `{"message": "Hello from AWS IoT console"}`.
 

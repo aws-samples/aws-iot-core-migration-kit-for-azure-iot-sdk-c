@@ -39,19 +39,19 @@ Resources:
             - Effect: Allow
               Action:
                 - iot:Publish
-              Resource: 'arn:aws:iot:*:*:topic/device/*/method/*/*'
+              Resource: 'arn:aws:iot:*:*:topic/device/*/methods/*/*'
         - Version: '2012-10-17'
           Statement:
             - Effect: Allow
               Action:
                 - iot:Subscribe
-              Resource: 'arn:aws:iot:*:*:topicfilter/device/method/res/+/*'
+              Resource: 'arn:aws:iot:*:*:topicfilter/device/methods/res/+/*'
         - Version: '2012-10-17'
           Statement:
             - Effect: Allow
               Action:
                 - iot:Receive
-              Resource: 'arn:aws:iot:*:*:topic/device/method/res/*/*'
+              Resource: 'arn:aws:iot:*:*:topic/device/methods/res/*/*'
       Events:
         DirectMethodApi:
           Type: Api
